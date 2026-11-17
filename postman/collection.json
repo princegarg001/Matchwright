@@ -1,0 +1,45 @@
+{
+  "info": {"name": "Resume-JD Matcher", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+  "item": [
+    {"name": "Health", "request": {"method": "GET", "url": "{{base_url}}/health"},
+     "event": [{"listen": "test", "script": {"exec": [
+       "pm.test('200', () => pm.response.to.have.status(200));",
+       "pm.test('status ok', () => pm.expect(pm.response.json().status).to.eql('ok'));"]}}]},
+    {"name": "Match - strong (Data Scientist)", "request": {"method": "POST", "url": "{{base_url}}/v1/match",
+      "header": [{"key": "X-API-Key", "value": "{{api_key}}"}, {"key": "Content-Type", "value": "application/json"}],
+      "body": {"mode": "raw", "raw": "{\"resume_text\": \"Data analyst with 5 years of experience. Skills: Python, SQL, Tableau, Excel, statistics, A/B testing, Git. Built dashboards in Power BI and Tableau. Wrote ETL in Python and SQL on AWS. Bachelor of Science in Statistics. Worked in Agile scrum teams and mentored two junior analysts on reporting.\", \"jd_text\": \"We are hiring a Data Scientist. Requirements: 3+ years of experience, Python, SQL, machine learning, scikit-learn, statistics and A/B testing. Must have Python. Preferred: Docker, AWS, Tableau. Bachelor's degree in a quantitative field. You will build models and share insights with stakeholders.\", \"options\": {\"return_trace\": true, \"use_cache\": false}}"}},
+     "event": [{"listen": "test", "script": {"exec": [
+       "const b = pm.response.json();",
+       "pm.test('200', () => pm.response.to.have.status(200));",
+       "pm.test('score in range', () => pm.expect(b.score).to.be.within(0, 100));",
+       "pm.test('exactly 3 justifications', () => pm.expect(b.justifications.length).to.eql(3));",
+       "pm.test('tools called in order', () => pm.expect(b.trace.filter(s => s.tool).map(s => s.tool)).to.eql(['extract_skills','extract_skills','normalize_skills','score_match','explain_match']));",
+       "pm.test('knowledge graph present', () => pm.expect(b.knowledge_graph.nodes.length).to.be.above(0));",
+       "pm.collectionVariables.set('match_id', b.match_id);"]}}]},
+    {"name": "Match - insufficient information (failure case)", "request": {"method": "POST", "url": "{{base_url}}/v1/match",
+      "header": [{"key": "X-API-Key", "value": "{{api_key}}"}, {"key": "Content-Type", "value": "application/json"}],
+      "body": {"mode": "raw", "raw": "{\"resume_text\": \"Grandma's pasta: boil water, add salt.\", \"jd_text\": \"We are hiring a Data Scientist. Requirements: 3+ years of experience, Python, SQL, machine learning, scikit-learn, statistics and A/B testing. Must have Python. Preferred: Docker, AWS, Tableau. Bachelor's degree in a quantitative field. You will build models and share insights with stakeholders.\"}"}},
+     "event": [{"listen": "test", "script": {"exec": [
+       "const b = pm.response.json();",
+       "pm.test('graceful 200', () => pm.response.to.have.status(200));",
+       "pm.test('no score', () => pm.expect(b.score).to.eql(null));",
+       "pm.test('fallback message', () => pm.expect(b.message).to.include(\"I don't have enough information\"));"]}}]},
+    {"name": "Get match by id", "request": {"method": "GET", "url": "{{base_url}}/v1/match/{{match_id}}",
+      "header": [{"key": "X-API-Key", "value": "{{api_key}}"}]},
+     "event": [{"listen": "test", "script": {"exec": ["pm.test('200', () => pm.response.to.have.status(200));"]}}]},
+    {"name": "Match - missing API key (401)", "request": {"method": "POST", "url": "{{base_url}}/v1/match",
+      "header": [{"key": "Content-Type", "value": "application/json"}],
+      "body": {"mode": "raw", "raw": "{\"resume_text\": \"x\", \"jd_text\": \"y\"}"}},
+     "event": [{"listen": "test", "script": {"exec": [
+       "pm.test('401', () => pm.response.to.have.status(401));",
+       "pm.test('error shape', () => pm.expect(pm.response.json().error.code).to.eql('http_401'));"]}}]},
+    {"name": "Rank resumes", "request": {"method": "POST", "url": "{{base_url}}/v1/rank",
+      "header": [{"key": "X-API-Key", "value": "{{api_key}}"}, {"key": "Content-Type", "value": "application/json"}],
+      "body": {"mode": "raw", "raw": "{\"jd_text\": \"We are hiring a Data Scientist. Requirements: Python, SQL, machine learning, statistics.\", \"resumes\": [{\"id\": \"a\", \"text\": \"Data analyst with 5 years. Skills: Python, SQL, statistics, Tableau. Built ETL pipelines and dashboards for sales teams across three regions.\"}]}"}},
+     "event": [{"listen": "test", "script": {"exec": ["pm.test('200', () => pm.response.to.have.status(200));"]}}]},
+    {"name": "Live job search (Remotive)", "request": {"method": "GET", "url": "{{base_url}}/v1/jobs/search?q=python&limit=5",
+      "header": [{"key": "X-API-Key", "value": "{{api_key}}"}]},
+     "event": [{"listen": "test", "script": {"exec": ["pm.test('200 or 502', () => pm.expect([200,502]).to.include(pm.response.code));"]}}]}
+  ],
+  "variable": [{"key": "match_id", "value": ""}]
+}

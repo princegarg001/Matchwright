@@ -1,0 +1,5 @@
+# optional, heavier: semantic similarity, SkillNER, tracing
+sentence-transformers>=3.0
+skillNer>=1.0
+spacy>=3.7
+langfuse>=3.0

@@ -1,0 +1,29 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env: {OFFLINE_MODE: "true", API_KEY: "test-key", USE_EMBEDDINGS: "false"}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11", cache: pip}
+      - run: pip install -r requirements.txt
+      - run: ruff check app tests
+      - run: pytest -q
+      - name: API + Newman (offline mode)
+        run: |
+          uvicorn app.api.main:app --port 8000 &
+          sleep 5
+          npx -y newman run postman/collection.json --env-var base_url=http://localhost:8000 --env-var api_key=test-key
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: frontend}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 22, cache: npm, cache-dependency-path: frontend/package-lock.json}
+      - run: npm ci
+      - run: npm test
+      - run: npm run build

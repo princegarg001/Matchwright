@@ -1,0 +1,38 @@
+# Rendered at container start by the nginx image (envsubst on ${API_UPSTREAM} and ${API_KEY} only).
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+    client_max_body_size 3m;   # API rejects > 2 MB with a clear message; this just stops abuse earlier
+
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'" always;
+
+    # The browser calls /api/...; nginx forwards to FastAPI and adds the key, so it never reaches the client.
+    location /api/ {
+        proxy_pass ${API_UPSTREAM}/;
+        proxy_set_header X-API-Key "${API_KEY}";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 600s;    # local-model scoring can take minutes on CPU
+        proxy_buffering off;        # keep /v1/match/stream's NDJSON lines flowing to the browser as they arrive
+        proxy_cache off;
+        chunked_transfer_encoding on;
+    }
+
+    # Hashed build assets: cache for a year. `expires` keeps the server-level security headers.
+    location /assets/ {
+        expires 1y;
+        try_files $uri =404;
+    }
+
+    # SPA routes (/rank, /matches/:id) fall back to index.html; never cache it.
+    location / {
+        expires -1;
+        try_files $uri /index.html;
+    }
+}

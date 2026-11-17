@@ -1,0 +1,5 @@
+{
+  "resume_text": "Data analyst with 5 years of experience. Skills: Python, SQL, Tableau, Excel, statistics, A/B testing, Git. Built dashboards in Power BI and Tableau for sales and marketing teams across three regions. Wrote ETL pipelines in Python and SQL running on AWS infrastructure daily. Bachelor of Science in Statistics from a state university. Worked in Agile scrum teams for several years, mentoring two junior analysts along the way.",
+  "jd_text": "We are hiring a Data Scientist for our growing analytics team. Requirements: 3+ years of experience, Python, SQL, machine learning, scikit-learn, statistics and A/B testing experience are required for this role. Must have Python. Preferred: Docker, AWS, Tableau experience is a plus but not required. Bachelor degree in a quantitative field such as statistics, math or computer science is required. You will build predictive models and share insights with stakeholders across the company.",
+  "options": {"return_trace": true, "use_cache": false}
+}

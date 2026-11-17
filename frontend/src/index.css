@@ -1,0 +1,73 @@
+@import "tailwindcss";
+@import "@fontsource-variable/schibsted-grotesk";
+
+/* Design tokens: cool drafting paper, deep ink, one blueprint accent,
+   and four status colours that carry meaning (never decoration). */
+@theme {
+  --font-sans: "Schibsted Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+
+  --color-paper: #f5f7f4;
+  --color-sheet: #ffffff;
+  --color-ink: #17202e;
+  --color-slate: #5b6676;
+  --color-rule: #d9ded8;
+  --color-blueprint: #1f4e79;
+  --color-blueprint-soft: #e3ebf3;
+
+  --color-exact: #2e7d5b;
+  --color-related: #a86b12;
+  --color-semantic: #5b5fc7;
+  --color-missing: #b3412f;
+
+  --color-exact-soft: #e4f1ea;
+  --color-related-soft: #f6ecdc;
+  --color-semantic-soft: #e9e9f8;
+  --color-missing-soft: #f6e4e0;
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+  body {
+    @apply bg-paper text-ink font-sans antialiased;
+    font-feature-settings: "ss01";
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-blueprint);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  ::selection {
+    background: var(--color-blueprint-soft);
+  }
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Knowledge graph: nodes/edges fade and settle in as they arrive from the live trace. */
+@keyframes kgIn {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.kg-enter {
+  animation: kgIn 0.35s ease-out;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

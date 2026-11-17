@@ -1,0 +1,18 @@
+# Use kaggle:<ID> / linkedin:<job_id> after `make data`, or a path to a .txt file.
+# Pick IDs by browsing data/processed/*.parquet (see the snippet in README section "Picking demo IDs").
+pairs:
+  - name: "1 Strong - IT resume vs Data Scientist"
+    resume: kaggle:REPLACE_IT_RESUME_ID
+    jd: linkedin:REPLACE_DATA_SCIENTIST_JOB_ID
+  - name: "2 Partial - Java dev vs DevOps (live)"
+    resume: kaggle:REPLACE_JAVA_RESUME_ID
+    jd: samples/jds/devops_remotive.txt
+  - name: "3 Good - Accountant vs Financial Analyst"
+    resume: kaggle:REPLACE_ACCOUNTANT_RESUME_ID
+    jd: linkedin:REPLACE_FIN_ANALYST_JOB_ID
+  - name: "4 Weak - Chef vs ML Engineer"
+    resume: kaggle:REPLACE_CHEF_RESUME_ID
+    jd: linkedin:REPLACE_ML_ENGINEER_JOB_ID
+  - name: "5 Company - HR resume vs the hiring company's own posting"
+    resume: kaggle:REPLACE_HR_RESUME_ID
+    jd: samples/jds/company_posting.txt
