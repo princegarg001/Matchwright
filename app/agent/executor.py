@@ -29,12 +29,26 @@ def get_executor():
                          handle_parsing_errors=True, return_intermediate_steps=True, verbose=True)
 
 
+@lru_cache
+def _langfuse_client():
+    """Registers the Langfuse client once with our own settings. langfuse.langchain.CallbackHandler
+    itself takes no credentials — it looks up an already-registered client via get_client(), which
+    falls back to reading LANGFUSE_* from os.environ if none was registered. Our .env is loaded by
+    pydantic-settings into this Settings object, not into os.environ, so without this explicit,
+    cached instantiation the handler would silently trace nothing."""
+    from langfuse import Langfuse
+    return Langfuse(public_key=settings.langfuse_public_key or None,
+                    secret_key=settings.langfuse_secret_key or None,
+                    host=settings.langfuse_host)
+
+
 def _callbacks() -> list:
     if not settings.langfuse_enabled:
         return []
     try:
         from langfuse.langchain import CallbackHandler
-        return [CallbackHandler()]
+        _langfuse_client()
+        return [CallbackHandler(public_key=settings.langfuse_public_key or None)]
     except Exception as e:
         log.warning("langfuse disabled: %s", e)
         return []

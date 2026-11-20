@@ -1,6 +1,0 @@
-Placeholder for pair 5 ("Company" scenario) in samples/pairs.yaml.
-
-Paste the full text of a real job posting from a company whose own resume also appears in the
-Kaggle Resume Dataset (e.g. pick an HR resume and a real HR/recruiting job posting), so the fifth
-demo pair shows the matcher working against a JD you sourced yourself rather than from the
-training data. Delete this placeholder text first.

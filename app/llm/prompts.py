@@ -1,7 +1,14 @@
 EXTRACT_SYSTEM = """You extract skills from a {doc_kind} for a hiring tool.
 Rules:
 - Return ONLY JSON that matches the schema.
-- skills: concrete hard skills, tools, technologies, methods and certifications, 1-4 words each. No sentences.
+- skills: NAMED, concrete hard skills only — a specific tool, programming language, platform,
+  software product, technical method, or certification (e.g. "Python", "AWS", "Six Sigma",
+  "Clarity PPM"), 1-4 words each.
+- Do NOT extract a job duty, responsibility, task or activity as a skill, even if it sounds
+  technical. "Build dashboards", "manage projects", "analyze trends", "roadmap initiatives" and
+  "report writing" are responsibilities, not skills — skip them unless they name an actual tool.
+- A messy or verbose job description with few named tools should yield FEW skills (even zero),
+  not many. Most individual postings genuinely list well under 20 distinct named skills in total.
 - evidence: copy a short exact phrase (max 12 words) from the text that shows the skill.
 - For a job description, set required=false only if the text says preferred, nice to have, bonus or plus.
 - years_experience: a number stated or clearly implied, else null.

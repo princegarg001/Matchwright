@@ -1,18 +1,20 @@
-# Use kaggle:<ID> / linkedin:<job_id> after `make data`, or a path to a .txt file.
-# Pick IDs by browsing data/processed/*.parquet (see the snippet in README section "Picking demo IDs").
+# Real doc_ids picked from data/processed/*.parquet after `make data`, selected by actual
+# keyword-skill overlap (not just matching Kaggle's broad category label — same category does
+# not guarantee topical overlap; see README "Agent trace" for how these were chosen).
+# Pair 2 deliberately uses a live-fetched JD (not in the training data) to prove /v1/jobs/search.
 pairs:
-  - name: "1 Strong - IT resume vs Data Scientist"
-    resume: kaggle:REPLACE_IT_RESUME_ID
-    jd: linkedin:REPLACE_DATA_SCIENTIST_JOB_ID
-  - name: "2 Partial - Java dev vs DevOps (live)"
-    resume: kaggle:REPLACE_JAVA_RESUME_ID
+  - name: "1 Weak (37) - IT resume vs Data Scientist - Senior (V2X Inc)"
+    resume: kaggle:20674668
+    jd: linkedin:3903877537
+  - name: "2 Good (72) - IT/Java resume vs a live-fetched posting (Remotive, Senior Data Engineer)"
+    resume: kaggle:83816738
     jd: samples/jds/devops_remotive.txt
-  - name: "3 Good - Accountant vs Financial Analyst"
-    resume: kaggle:REPLACE_ACCOUNTANT_RESUME_ID
-    jd: linkedin:REPLACE_FIN_ANALYST_JOB_ID
-  - name: "4 Weak - Chef vs ML Engineer"
-    resume: kaggle:REPLACE_CHEF_RESUME_ID
-    jd: linkedin:REPLACE_ML_ENGINEER_JOB_ID
-  - name: "5 Company - HR resume vs the hiring company's own posting"
-    resume: kaggle:REPLACE_HR_RESUME_ID
-    jd: samples/jds/company_posting.txt
+  - name: "3 Good (67) - Accountant resume vs Financial Analyst"
+    resume: kaggle:42487883
+    jd: linkedin:3902354893
+  - name: "4 Weak (14) - Chef resume vs Lead Machine Learning Engineer"
+    resume: kaggle:27298953
+    jd: linkedin:3904061915
+  - name: "5 Strong (100) - HR resume vs HR Consultant, Employee Benefits (RogersGray)"
+    resume: kaggle:72231872
+    jd: linkedin:3904511022

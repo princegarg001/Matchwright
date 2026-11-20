@@ -20,14 +20,23 @@ def _cache(name: str, rows: list[dict]) -> None:
 
 
 def remotive(query: str, limit: int = 20) -> list[dict]:
-    r = requests.get("https://remotive.com/api/remote-jobs",
-                     params={"search": query, "limit": limit}, timeout=TIMEOUT)
+    """Remotive's free `/remote-jobs` endpoint now silently ignores `search`/`category` and
+    always returns the same fixed small batch of recent jobs (confirmed live: identical results
+    for different search terms, `limit` included) — search appears to be a paid-tier feature now.
+    We filter client-side instead, on whatever Remotive currently exposes for free, so the result
+    is at least honestly related to the query rather than a plausible-looking but unrelated job."""
+    r = requests.get("https://remotive.com/api/remote-jobs", params={"search": query}, timeout=TIMEOUT)
     r.raise_for_status()
+    jobs = r.json().get("jobs", [])
+    terms = [t for t in query.lower().split() if t]
+    if terms:
+        jobs = [j for j in jobs if any(t in (j.get("title", "") + " " + j.get("description", "")).lower()
+                                        for t in terms)]
     rows = [{
         "source": "remotive", "job_id": f"remotive_{j['id']}", "title": j.get("title", ""),
         "company": j.get("company_name", ""), "url": j.get("url", ""),
         "text": clean_text(html_to_text(j.get("description", ""))),
-    } for j in r.json().get("jobs", [])[:limit]]
+    } for j in jobs[:limit]]
     _cache("remotive", rows)
     return rows
 

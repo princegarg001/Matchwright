@@ -23,7 +23,9 @@ services:
       - key: OPENAI_COMPATIBLE_BASE_URL
         value: https://api.groq.com/openai/v1
       - key: OPENAI_COMPATIBLE_MODEL
-        value: llama-3.1-8b-instant
+        value: openai/gpt-oss-120b
+      - key: OPENAI_COMPATIBLE_AGENT_MODEL
+        value: qwen/qwen3.8-27b   # gpt-oss-120b loops on the text ReAct agent; qwen completes it
       - key: OPENAI_COMPATIBLE_API_KEY
         sync: false        # set in the Render dashboard; never commit real keys
       - key: API_KEY
@@ -44,6 +46,14 @@ services:
         sync: false
       - key: ADZUNA_APP_KEY
         sync: false
+      - key: LANGFUSE_ENABLED
+        value: "false"      # flip to "true" once LANGFUSE_PUBLIC_KEY/SECRET_KEY are set below
+      - key: LANGFUSE_PUBLIC_KEY
+        sync: false
+      - key: LANGFUSE_SECRET_KEY
+        sync: false
+      - key: LANGFUSE_HOST
+        value: https://cloud.langfuse.com   # or https://us.cloud.langfuse.com — must match your project's region
     disk:
       name: matchwright-data
       mountPath: /app/data

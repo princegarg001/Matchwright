@@ -9,10 +9,13 @@ far outside the alias vocabulary in `config/aliases.yaml` (extend it before rely
 for a new domain). Legal/compliance screening (background checks, visa status, etc.).
 
 **Models.**
-- Local: Phi-3-mini (3.8B), served by Ollama, `temperature=0`, 4K context.
-- Hosted (used for the public demo on Render, see README "Deploying to Render"): any
-  OpenAI-compatible small/fast model (default: `llama-3.1-8b-instant` via Groq), selected only
-  because Render's standard web services have no persistent disk/GPU to self-host Ollama.
+- Default (fast, `temperature=0`): hosted via Groq, `openai/gpt-oss-120b` for extraction/scoring/
+  explanation and `qwen/qwen3.8-27b` for the ReAct agent loop specifically — measured directly:
+  gpt-oss-120b gives materially better structured-extraction quality but never progresses past
+  step 1 of the plain-text ReAct format (it doesn't act on its own tool Observations), so the
+  agent uses a different, confirmed-compatible model. ~2-3s/call.
+- Local/offline alternative (`LLM_PROVIDER=ollama`): Phi-3-mini (3.8B) via Ollama, 4K context,
+  no API key, full privacy — ~25-50s/call on CPU, the path this project's DoD originally targeted.
 - Optional: `BAAI/bge-small-en-v1.5` sentence embeddings (via `sentence-transformers`, downloaded
   from the Hugging Face Hub on first use) for the semantic-similarity sub-score; disabled by
   default on the hosted deployment to keep the image small.
@@ -34,9 +37,12 @@ compared to a TF-IDF baseline) and `reports/bias.md` (counterfactual fairness: s
 move by more than 2 points when names/pronouns are swapped) after running `make eval` / `make bias`.
 
 **Limitations.** Kaggle resumes are template-formatted and may not represent your real applicant
-pool. Phi-3-mini's 4K context means long documents are chunked, so extraction can miss a skill
-mentioned only once in a chunk the model doesn't see (capped at `MAX_CHUNKS_PER_DOC`). CPU
-inference is slow (tens of seconds per document); a GPU or a hosted model is faster. English only.
+pool. A 4K-context small model means long documents are chunked, so extraction can miss a skill
+mentioned only once in a chunk the model doesn't see (capped at `MAX_CHUNKS_PER_DOC`). CPU-only
+Ollama inference is slow (tens of seconds per call). Groq's free tier caps `gpt-oss-120b` at
+200,000 tokens/day per account — a handful of extraction-heavy runs can exhaust it for the day,
+after which calls fail over to the deterministic keyword extractor (correct scores, lower
+`confidence`) until the quota resets; see `docs/troubleshooting.md`. English only.
 
 **Human oversight.** Every score is logged with input hashes, the model used, and the exact
 weights (`app/core/store.py`), so a result can be audited later. The UI's "requirement ledger"

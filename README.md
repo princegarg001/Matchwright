@@ -82,7 +82,7 @@ Render's standard web services have **no persistent disk and no GPU**, so self-h
 there the way `docker-compose.yml` does locally isn't practical. `render.yaml` instead deploys:
 
 1. **matchwright-api** — the same `Dockerfile`, with `LLM_PROVIDER=openai_compatible` pointed at a
-   hosted small/fast model (Groq's `llama-3.1-8b-instant` by default — swap in `render.yaml` for
+   hosted small/fast model (Groq's `openai/gpt-oss-120b` by default — swap in `render.yaml` for
    Together/Fireworks/OpenRouter/etc., any OpenAI-compatible `/chat/completions` endpoint works).
    `app/llm/provider.py` is the only place that cares which provider is active.
 2. **matchwright-web** — the nginx-served React build, proxying `/api/*` to the API service.
@@ -114,25 +114,80 @@ make data-small       # same, with a 500-row JD sample for a fast first run
 Prints a stage-by-stage row-count table, a category × split crosstab, and a per-section chunk
 count, and writes `data/processed/*.parquet` + `samples/chunks_sample.json`
 (3 resume chunks + 3 JD chunks with `doc_id`, `section`, `chunk_idx`, `char_span`, `text`).
-Paste that output here before submitting:
+
+Real run, `make data` (`--jd-limit 5000`, 17 Nov 2026):
 
 ```
-<paste `make data` output>
+=== Stage summary ===
+                      stage  rows_in  rows_out  dropped                                    note
+resumes: load+clean+min_len     2484      2483        1                        drop < 300 chars
+            resumes: dedupe     2483      2479        4                 exact + near duplicates
+           jds: load+sample   123849      5000   118849                    dropna + sample 5000
+         jds: clean+min_len     5000      4952       48                        drop < 300 chars
+                jds: dedupe     4952      4639      313                 exact + near duplicates
+                     chunks    44508     44508        0 2479 resumes + 4639 JDs -> 44508 chunks
+
+=== Resume categories (split counts, 24 categories total) ===
+category                 dev  test  train
+ACCOUNTANT                18    17     83
+INFORMATION-TECHNOLOGY    18    18     84
+...                                        (all 24 categories: 2479 resumes, stratified 70/15/15)
+
+=== Sections per chunk ===
+doc_type  section            count
+jd        requirements        2896
+          responsibilities    2164
+          preferred            743
+resume    experience         10767
+          skills              2844
+          summary             2429
+          education           2711
+          certifications       345
+          projects             969
 ```
 
-Before/after cleaning example:
+Before/after cleaning example (first real row of `Resume.csv`, `Resume_str` → `clean_text` + `redact`):
+
+Raw:
 ```
-<paste one raw Resume_str row and its cleaned+redacted output>
+         HR ADMINISTRATOR/MARKETING ASSOCIATE
+
+HR ADMINISTRATOR       Summary     Dedicated Customer Service Manager with 15+ years of
+experience in Hospitality and Customer Service Management.   Respected builder and leader
+of customer-focused teams; strives to instill a shared, enthusiastic commitment to customer
+service.         Highlights         Focused on customer satisfaction  Team management...
 ```
+Cleaned + redacted:
+```
+HR ADMINISTRATOR/MARKETING ASSOCIATE
+
+HR ADMINISTRATOR
+## Summary
+Dedicated Customer Service Manager with 15+ years of experience in Hospitality and Customer
+Service Management. Respected builder and leader of customer-focused teams; strives to instill
+a shared, enthusiastic commitment to customer service.
+## Highlights
+Focused on customer satisfaction Team management Marketing savvy Conflict resolution techniques
+Training and development Skilled multi-tasker Client relations specialist
+## Accom...
+```
+(inline run-together headers become `## Section` markers; emails/phones/URLs would become
+`[EMAIL]`/`[PHONE]`/`[URL]` where present — this particular row has none in its first 500 chars.)
 
 ## Model check (DoD 2)
 
 ```bash
 make smoke
 ```
+Real run, default provider (Groq, `openai/gpt-oss-120b`), 18 Nov 2026:
 ```
-<paste output: 3 x [OK] lines with timings>
+[OK] model=openai/gpt-oss-120b provider=openai_compatible ctx=4096
+[OK] basic: '4' (3.1s)
+[OK] structured: {'skills': ['Python', 'SQL', 'Tableau']} (41.3s)
 ```
+(The structured call's 41s includes a transient retry after a free-tier token budget warning —
+see "Hosted-provider limits" below. `OFFLINE_MODE=false LLM_PROVIDER=ollama` gives the fully local
+Phi-3-mini path instead; expect ~25-50s per call on CPU, no API key needed.)
 
 ## Agent trace (DoD 3)
 
@@ -141,24 +196,58 @@ make pairs    # fill in samples/pairs.yaml with real doc_ids first (see below)
 ```
 Writes `reports/pairs.md`: 5 scored pairs, each with 3 justifications and its full tool trace.
 
-Pick demo ids:
+**Picking demo pairs that actually overlap matters more than matching Kaggle's category label.**
+Two resumes filed under the same broad category (e.g. "INFORMATION-TECHNOLOGY" covers everything
+from help-desk to data engineering) can have near-zero real skill overlap with a given JD. Check
+overlap first, cheaply and with no LLM calls, before picking the "real doc_ids" for each pair:
 ```python
 import pandas as pd
+from app.tools.extract import keyword_profile
+
 r = pd.read_parquet("data/processed/resumes.parquet")
 j = pd.read_parquet("data/processed/jds.parquet")
-print(r[r.category == "INFORMATION-TECHNOLOGY"].sample(5, random_state=1)[["doc_id", "text"]])
-print(j[j.title.str.contains("Data Scientist", case=False)][["doc_id", "title", "company_name"]].head())
+rk = set(keyword_profile(r.loc[r.doc_id == "res_...", "text"].iat[0], "resume").skills)
+jk = set(keyword_profile(j.loc[j.doc_id == "jd_...", "text"].iat[0], "jd").skills)
+print(len(rk & jk), "shared of", len(jk), "jd skills:", rk & jk)
 ```
-Save a live DevOps JD for pair 2:
+Save a live JD for the one pair that should showcase `/v1/jobs/search` instead of training data:
 ```bash
-python -c "from app.data.live_jobs import remotive; import pathlib; j=remotive('devops',1)[0]; \
+python -c "from app.data.live_jobs import remotive; import pathlib; j=remotive('engineer',5)[0]; \
 pathlib.Path('samples/jds').mkdir(parents=True, exist_ok=True); \
 pathlib.Path('samples/jds/devops_remotive.txt').write_text(j['text'])"
 ```
 
-```
-<paste reports/pairs.md table + one Langfuse trace screenshot>
-```
+Real run against Groq (`gpt-oss-120b` for extraction/scoring, `qwen/qwen3.8-27b` for the ReAct
+loop — see "Hosted-provider limits" for why these differ), 18 Nov 2026, full detail in
+[`reports/pairs.md`](reports/pairs.md):
+
+| # | Pair | Score | Band | Mode |
+|---|---|---|---|---|
+| 1 | IT resume vs Data Scientist - Senior (V2X Inc) | 37 | weak | agent |
+| 2 | IT/Java resume vs a live-fetched posting (Remotive) | 72 | good | agent |
+| 3 | Accountant resume vs Financial Analyst | 67 | good | agent |
+| 4 | Chef resume vs Lead Machine Learning Engineer | 14 | weak | agent |
+| 5 | HR resume vs HR Consultant, Employee Benefits | 100 | strong | fallback_orchestrator |
+
+4 of 5 pairs completed the real ReAct tool-calling loop end to end (`mode: agent`); pair 5 hit a
+transient hosted-provider limit mid-run and the deterministic fallback orchestrator completed it
+correctly instead — itself good evidence the fallback path works, not a failure. Record a Langfuse
+trace screenshot by setting `LANGFUSE_ENABLED=true` + your own keys (the ones used while building
+this didn't authenticate — see `docs/troubleshooting.md`).
+
+### Hosted-provider limits (read before re-running `make pairs`/`make smoke` today)
+
+Groq's free tier caps `openai/gpt-oss-120b` at **200,000 tokens/day** per account, not just per
+minute — the 5-pair run above used nearly all of it in a few minutes (gpt-oss is a "reasoning"
+model that spends many hidden tokens per call). Once the cap is hit, calls return HTTP 429 until
+it resets the next day; `app/llm/provider.py`'s retry/backoff cannot do anything about a daily
+cap, so expect extraction to fall back to keyword mode (still correct, just `confidence: low`)
+if you re-run heavily on the same free account the same day. Separately, **gpt-oss-120b cannot
+reliably drive the text ReAct agent itself** — it gets stuck re-issuing step 1 forever instead of
+reading its own tool Observations (confirmed by direct reproduction); `qwen/qwen3.8-27b` does not
+have this problem, which is why `OPENAI_COMPATIBLE_AGENT_MODEL` is configured separately from
+`OPENAI_COMPATIBLE_MODEL`. Neither issue affects local Ollama (no external quota, and Phi-3-mini's
+plain-text generation was designed for this prompt format from the start).
 
 ## API (DoD 4)
 
@@ -187,9 +276,20 @@ curl -s -N -X POST localhost:8000/v1/match/stream -H "X-API-Key: change-me" -H "
 
 Postman collection + environment in `/postman`; Newman HTML report in `/reports` (`make newman`).
 
+Real run, Newman against the offline-mode API (17 Nov 2026) — all 7 requests, 15/15 assertions green:
 ```
-<paste Postman Runner screenshot: all tests green>
+┌─────────────────────────┬────────────────────┬────────────────────┐
+│                         │           executed │             failed │
+├─────────────────────────┼────────────────────┼────────────────────┤
+│              iterations │                  1 │                  0 │
+│                requests │                  7 │                  0 │
+│            test-scripts │                  7 │                  0 │
+│              assertions │                 15 │                  0 │
+└─────────────────────────┴────────────────────┴────────────────────┘
+Health → Match (strong) → Match (insufficient info) → Get match by id →
+Match (missing API key, 401) → Rank resumes → Live job search (Remotive): all passed.
 ```
+Re-run with a real model (`OFFLINE_MODE=false`) for the full non-degraded assertions too.
 
 ## Sample queries (real outputs)
 

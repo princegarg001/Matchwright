@@ -9,6 +9,7 @@ Two providers are supported:
 """
 import json
 import logging
+import time
 from functools import lru_cache
 from typing import TypeVar
 
@@ -22,6 +23,23 @@ T = TypeVar("T", bound=BaseModel)
 
 class LLMUnavailable(RuntimeError):
     pass
+
+
+def _with_backoff(fn, attempts: int = 3, base_delay: float = 1.5):
+    """Hosted providers (Groq especially, since reasoning models burn tokens-per-minute fast)
+    return transient connection/429 errors under normal load. Retrying a couple of times with
+    exponential backoff is the difference between a flaky demo and a working one; only the last
+    attempt's error is surfaced, wrapped as LLMUnavailable."""
+    last: Exception | None = None
+    for i in range(attempts):
+        try:
+            return fn()
+        except Exception as e:  # connection errors, timeouts, rate limits
+            last = e
+            if i < attempts - 1:
+                log.warning("LLM call failed (attempt %d/%d): %s — retrying", i + 1, attempts, e)
+                time.sleep(base_delay * (2**i))
+    raise LLMUnavailable(str(last)) from last
 
 
 @lru_cache
@@ -65,40 +83,41 @@ def chat_json(system: str, user: str, schema: type[T], retries: int = 1) -> T:
     for _ in range(retries + 1):
         try:
             if settings.llm_provider == "openai_compatible":
-                content = _chat_json_openai(messages, schema)
+                content = _with_backoff(lambda: _chat_json_openai(messages, schema))
             else:
-                content = _chat_json_ollama(messages, schema)
+                content = _with_backoff(lambda: _chat_json_ollama(messages, schema))
             return schema.model_validate_json(content)
         except ValidationError as e:
             last_err = e
             messages.append({"role": "user", "content": f"Your JSON was invalid: {e.errors()[:3]}. Return valid JSON."})
-        except Exception as e:  # connection errors, timeouts
-            raise LLMUnavailable(str(e)) from e
     raise LLMUnavailable(f"invalid JSON after retries: {last_err}")
 
 
 def chat_text(system: str, user: str) -> str:
     if settings.offline_mode:
         raise LLMUnavailable("offline mode")
-    try:
+    msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+    def _call() -> str:
         if settings.llm_provider == "openai_compatible":
             resp = _openai_client().chat.completions.create(
-                model=settings.openai_compatible_model, temperature=0,
-                messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+                model=settings.openai_compatible_model, temperature=0, messages=msgs,
             )
             return (resp.choices[0].message.content or "").strip()
-        msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         resp = _ollama_client().chat(model=settings.llm_model, options=_options(), messages=msgs)
         return resp.message.content.strip()
-    except Exception as e:
-        raise LLMUnavailable(str(e)) from e
+
+    return _with_backoff(_call)
 
 
 def get_agent_llm():
-    """LangChain chat model for the ReAct agent."""
+    """LangChain chat model for the text ReAct agent specifically — see the note on
+    openai_compatible_agent_model in app/core/config.py for why this can differ from the model
+    chat_json/chat_text use."""
     if settings.llm_provider == "openai_compatible":
         from langchain_openai import ChatOpenAI
-        return ChatOpenAI(model=settings.openai_compatible_model, base_url=settings.openai_compatible_base_url,
+        model = settings.openai_compatible_agent_model or settings.openai_compatible_model
+        return ChatOpenAI(model=model, base_url=settings.openai_compatible_base_url,
                           api_key=settings.openai_compatible_api_key or "none", temperature=0)
     from langchain_ollama import ChatOllama
     return ChatOllama(model=settings.llm_model, base_url=settings.ollama_base_url,
