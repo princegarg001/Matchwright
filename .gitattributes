@@ -1,0 +1,10 @@
+# Prevent line-ending normalization from ever corrupting binary files (git's text/binary
+# auto-detection is a heuristic, not a guarantee, especially across different OS/git configs).
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.woff binary
+*.woff2 binary
+*.ico binary
+*.db binary
