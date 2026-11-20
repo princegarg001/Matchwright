@@ -14,8 +14,15 @@ server {
     # The browser calls /api/...; nginx forwards to FastAPI and adds the key, so it never reaches the client.
     location /api/ {
         proxy_pass ${API_UPSTREAM}/;
+        # nginx does NOT send SNI to an https:// upstream by default, which platforms like Render
+        # rely on to route the TLS handshake to the right backend — without this, the connection
+        # fails and nginx reports it as a 502, even though the same URL works fine from curl/a
+        # browser (both send SNI automatically). Confirmed directly: this was the actual cause.
+        proxy_ssl_server_name on;
         proxy_set_header X-API-Key "${API_KEY}";
-        proxy_set_header Host $host;
+        # No explicit Host override: nginx's default ($proxy_host) is the upstream's own hostname,
+        # which is what a host-routed platform like Render expects — forwarding this proxy's own
+        # public hostname instead (as `$host` would) can misroute or be rejected upstream.
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 600s;    # local-model scoring can take minutes on CPU
