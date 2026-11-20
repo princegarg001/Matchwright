@@ -1,10 +1,16 @@
 # Render Blueprint (https://render.com/docs/blueprint-spec).
-# Deploys the API and the React UI as two web services. Ollama is NOT deployed here: Render's
-# web services have no persistent disk and no GPU on the plans this blueprint targets, so a
-# locally-self-hosted Phi-3-mini can't live on the same box. Instead the API is pointed at a
-# hosted OpenAI-compatible endpoint (Groq/Together/Fireworks/OpenRouter all work) via
-# LLM_PROVIDER=openai_compatible. See README "Deploying to Render" for the two supported paths
-# (hosted small model vs. your own Ollama box with OLLAMA_BASE_URL pointed at it).
+# Deploys the API and the React UI as two web services, both on Render's free plan (no card on
+# file, no persistent disk, no billing prompt). Ollama is NOT deployed here: free web services
+# have no GPU either way, so a locally-self-hosted Phi-3-mini can't live on the same box. Instead
+# the API is pointed at a hosted OpenAI-compatible endpoint (Groq/Together/Fireworks/OpenRouter
+# all work) via LLM_PROVIDER=openai_compatible. See README "Deploying to Render" for the two
+# supported paths (hosted small model vs. your own Ollama box with OLLAMA_BASE_URL pointed at it).
+#
+# Free-plan tradeoffs, both acceptable for a demo: no persistent disk, so the SQLite results
+# cache (DB_PATH) resets on every deploy/restart — matches never stop working, old /v1/match/{id}
+# links just stop resolving after a restart; and the service spins down after ~15 min idle, so
+# the first request after a quiet period takes ~30-60s to cold-start. Upgrade to a paid plan with
+# a disk (see the commented-out block below) once that matters.
 #
 # Usage: push this repo to GitHub, then in Render: New -> Blueprint -> pick the repo.
 # Set the secret env vars (marked sync: false) in the Render dashboard after the first deploy.
@@ -14,7 +20,7 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    plan: starter
+    plan: free
     healthCheckPath: /health
     autoDeploy: true
     envVars:
@@ -39,7 +45,7 @@ services:
       - key: DATA_DIR
         value: /app/data
       - key: DB_PATH
-        value: /app/data/results.db
+        value: /app/data/results.db   # not on a persistent disk on the free plan — resets on restart
       - key: CORS_ORIGINS
         value: https://matchwright-web.onrender.com
       - key: ADZUNA_APP_ID
@@ -54,17 +60,18 @@ services:
         sync: false
       - key: LANGFUSE_HOST
         value: https://cloud.langfuse.com   # or https://us.cloud.langfuse.com — must match your project's region
-    disk:
-      name: matchwright-data
-      mountPath: /app/data
-      sizeGB: 1
+    # Uncomment once you're on a paid plan and want results.db to survive restarts:
+    # disk:
+    #   name: matchwright-data
+    #   mountPath: /app/data
+    #   sizeGB: 1
 
   - type: web
     name: matchwright-web
     runtime: docker
     dockerfilePath: ./frontend/Dockerfile
     dockerContext: ./frontend
-    plan: starter
+    plan: free
     autoDeploy: true
     envVars:
       # Render's Blueprint `fromService` only exposes a bare host/port, and nginx needs a full

@@ -87,6 +87,14 @@ there the way `docker-compose.yml` does locally isn't practical. `render.yaml` i
    `app/llm/provider.py` is the only place that cares which provider is active.
 2. **matchwright-web** — the nginx-served React build, proxying `/api/*` to the API service.
 
+Both run on Render's **free** plan (`plan: free` in `render.yaml`) — no card on file, no billing
+prompt. The tradeoff: no persistent disk, so the SQLite results cache resets on every redeploy or
+restart (old `/v1/match/{id}` links stop resolving, scoring itself is unaffected), and each service
+spins down after ~15 min idle, so the first request after a quiet spell takes ~30-60s to cold-start.
+If Render still shows a billing/payment prompt when creating the Blueprint, it's asking you to add
+a card for account verification, not charging you for the free plan itself — Render has required
+this on some accounts even for `plan: free`.
+
 ```bash
 # 1. push this repo to GitHub
 # 2. Render dashboard -> New -> Blueprint -> select the repo (reads render.yaml)
