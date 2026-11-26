@@ -188,10 +188,14 @@ def rank(request: Request, body: RankRequest):
 
 
 @app.get("/v1/jobs/search", dependencies=[Depends(require_key)])
-def jobs_search(q: str, source: str = "remotive", limit: int = 10):
+def jobs_search(q: str = "", source: str = "remotive", limit: int = 10):
     from app.data import live_jobs
     try:
-        return {"source": source, "results": live_jobs.search(q, source, min(limit, 25))}
+        return {
+            "source": source,
+            "adzuna_configured": bool(settings.adzuna_app_id and settings.adzuna_app_key),
+            "results": live_jobs.search(q, source, min(limit, 25)),
+        }
     except Exception as e:
         raise HTTPException(502, f"Job source unavailable: {e}") from e
 

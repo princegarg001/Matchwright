@@ -33,6 +33,8 @@ const json = (body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 });
 
+export type JobSource = "all" | "remotive" | "adzuna";
+
 export const api = {
   health: () => request<Health>("/health"),
 
@@ -51,8 +53,10 @@ export const api = {
 
   getMatch: (id: string) => request<MatchResult>(`/v1/match/${encodeURIComponent(id)}`),
 
-  searchJobs: (q: string) =>
-    request<{ source: string; results: LiveJob[] }>(`/v1/jobs/search?q=${encodeURIComponent(q)}&limit=8`),
+  searchJobs: (q: string, source: JobSource = "all") =>
+    request<{ source: string; adzuna_configured?: boolean; results: LiveJob[] }>(
+      `/v1/jobs/search?q=${encodeURIComponent(q)}&source=${encodeURIComponent(source)}&limit=10`,
+    ),
 };
 
 /**

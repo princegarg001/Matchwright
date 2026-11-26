@@ -1,7 +1,9 @@
 """Fetch live JDs. Remotive needs no key; Adzuna needs a free app_id/app_key. Results are cached to disk."""
 import json
+import logging
 import time
 from datetime import datetime, timezone
+from itertools import zip_longest
 from pathlib import Path
 
 import requests
@@ -9,6 +11,7 @@ import requests
 from app.core.config import settings
 from app.data.clean import clean_text, html_to_text
 
+log = logging.getLogger(__name__)
 CACHE = Path(settings.data_dir) / "raw" / "live"
 TIMEOUT = 20
 
@@ -45,23 +48,50 @@ def adzuna(query: str, limit: int = 20) -> list[dict]:
     if not (settings.adzuna_app_id and settings.adzuna_app_key):
         return []
     url = f"https://api.adzuna.com/v1/api/jobs/{settings.adzuna_country}/search/1"
-    r = requests.get(url, params={
-        "app_id": settings.adzuna_app_id, "app_key": settings.adzuna_app_key,
-        "what": query, "results_per_page": min(limit, 50), "content-type": "application/json",
-    }, timeout=TIMEOUT)
+    params: dict[str, str | int] = {
+        "app_id": settings.adzuna_app_id,
+        "app_key": settings.adzuna_app_key,
+        "results_per_page": min(limit, 50),
+        "content-type": "application/json",
+    }
+    if query.strip():
+        params["what"] = query.strip()
+    r = requests.get(url, params=params, timeout=TIMEOUT)
     r.raise_for_status()
     rows = [{
         "source": "adzuna", "job_id": f"adzuna_{j['id']}", "title": j.get("title", ""),
         "company": (j.get("company") or {}).get("display_name", ""), "url": j.get("redirect_url", ""),
-        "text": clean_text(j.get("description", "")),  # Adzuna returns a snippet, not the full JD
+        "text": clean_text(html_to_text(j.get("description", ""))),  # Adzuna returns a snippet, not the full JD
     } for j in r.json().get("results", [])]
     _cache("adzuna", rows)
     return rows
 
 
+def _search_all(query: str, limit: int) -> list[dict]:
+    buckets: list[list[dict]] = []
+    errors: list[Exception] = []
+    for name, fn in (("adzuna", adzuna), ("remotive", remotive)):
+        try:
+            items = fn(query, limit)
+            if items:
+                buckets.append(items)
+        except Exception as e:
+            log.warning("%s job search failed: %s", name, e)
+            errors.append(e)
+    if not buckets and errors:
+        raise errors[0]
+    merged = [item for pair in zip_longest(*buckets) for item in pair if item is not None]
+    return merged[:limit]
+
+
 def search(query: str, source: str = "remotive", limit: int = 20) -> list[dict]:
     t0 = time.time()
-    rows = remotive(query, limit) if source == "remotive" else adzuna(query, limit)
+    if source == "all":
+        rows = _search_all(query, limit)
+    elif source == "adzuna":
+        rows = adzuna(query, limit)
+    else:
+        rows = remotive(query, limit)
     for row in rows:
         row["fetched_in_ms"] = int((time.time() - t0) * 1000)
     return rows
