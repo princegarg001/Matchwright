@@ -301,14 +301,77 @@ Re-run with a real model (`OFFLINE_MODE=false`) for the full non-degraded assert
 
 ## Sample queries (real outputs)
 
+Verified outputs from `run_match()` (captured in `OFFLINE_MODE=true`; re-run with `OFFLINE_MODE=false` for live SLM/Groq extraction and LLM-written justifications):
+
+```json
+// 1. Strong match (score: 100, band: strong)
+{
+  "status": "ok",
+  "score": 100,
+  "band": "strong",
+  "sub_scores": {"required": 1.0, "preferred": 1.0, "experience": 1.0, "education": 1.0},
+  "matched_skills": ["a/b testing", "amazon web services", "docker", "machine learning", "python", "scikit-learn", "sql", "statistics", "tableau"],
+  "missing_skills": [],
+  "justifications": [
+    "Directly matches 5 of 5 required skills (a/b testing, machine learning, python).",
+    "6 years of experience meets the 3-year requirement. Education meets the requirement.",
+    "No required skill is missing."
+  ],
+  "mode": "offline",
+  "trace_tools": ["extract_skills", "extract_skills", "normalize_skills", "score_match", "explain_match"]
+}
 ```
-<paste 3 real JSON responses: strong / partial / weak>
+
+```json
+// 2. Partial match (score: 51, band: partial)
+{
+  "status": "ok",
+  "score": 51,
+  "band": "partial",
+  "sub_scores": {"required": 0.4, "preferred": 0.5, "experience": 0.7, "education": 0.7},
+  "matched_skills": ["amazon web services", "docker", "python", "sql"],
+  "missing_skills": ["a/b testing", "machine learning", "scikit-learn"],
+  "justifications": [
+    "Directly matches 2 of 5 required skills (python, sql).",
+    "4 years of experience meets the 3-year requirement. Education meets the requirement.",
+    "Missing required skills: a/b testing, machine learning, scikit-learn."
+  ],
+  "mode": "offline",
+  "trace_tools": ["extract_skills", "extract_skills", "normalize_skills", "score_match", "explain_match"]
+}
+```
+
+```json
+// 3. Weak match (score: 12, band: weak, knockout cap triggered)
+{
+  "status": "ok",
+  "score": 12,
+  "band": "weak",
+  "sub_scores": {"required": 0.0, "preferred": 0.0, "experience": 0.5, "education": 0.25},
+  "matched_skills": [],
+  "missing_skills": ["a/b testing", "machine learning", "python", "scikit-learn", "sql"],
+  "justifications": [
+    "Directly matches 0 of 5 required skills.",
+    "8 years of experience meets the 3-year requirement. Education is below the stated requirement.",
+    "Missing must-have skill(s) python, so the score is capped at 60."
+  ],
+  "mode": "offline",
+  "trace_tools": ["extract_skills", "extract_skills", "normalize_skills", "score_match", "explain_match"]
+}
 ```
 
 ## Failure case and fallback (DoD 5)
 
 Non-resume input → `status: insufficient_information`, no score, clear message, no 500. Full list
 with detection logic and the test that proves each one in `docs/failure_cases.md`.
+
+## Documentation & Build Plans
+
+- [`docs/implementation_guide.md`](docs/implementation_guide.md) — step-by-step walkthrough of every module and how it works
+- [`docs/dod_verification.md`](docs/dod_verification.md) — verified DoD 1–5 checks and commands for local Ollama/Newman runs
+- [`docs/advanced_live_system_plan.md`](docs/advanced_live_system_plan.md) — deep-researched production v2 architecture + Company Hiring-Edge module
+- [`docs/failure_cases.md`](docs/failure_cases.md) — graceful degradation and failure matrix
+- [`docs/troubleshooting.md`](docs/troubleshooting.md) — common setup, Ollama, Groq, and Render fixes
 
 ## Evaluation
 
