@@ -28,6 +28,7 @@ kaggle>=1.6
 httpx>=0.27
 sse-starlette>=2.1
 openai>=1.40
+langfuse>=3.0
 # dev
 pytest>=8.0
 ruff>=0.5

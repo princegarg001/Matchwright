@@ -16,6 +16,7 @@ from typing import TypeVar
 from pydantic import BaseModel, ValidationError
 
 from app.core.config import settings
+from app.core.telemetry import safe_update, trace_span
 
 log = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
@@ -73,29 +74,43 @@ def _chat_json_openai(messages: list[dict], schema: type[T]) -> str:
     return resp.choices[0].message.content
 
 
+def _active_model() -> str:
+    if settings.llm_provider == "openai_compatible":
+        return settings.openai_compatible_model
+    return settings.llm_model
+
+
 def chat_json(system: str, user: str, schema: type[T], retries: int = 1) -> T:
     """Constrained JSON generation validated by Pydantic, with one corrective retry."""
     if settings.offline_mode:
         raise LLMUnavailable("offline mode")
+    active_model = _active_model()
     messages = [{"role": "system", "content": system},
                 {"role": "user", "content": user + "\n\nJSON schema:\n" + json.dumps(schema.model_json_schema())}]
     last_err = None
-    for _ in range(retries + 1):
-        try:
-            if settings.llm_provider == "openai_compatible":
-                content = _with_backoff(lambda: _chat_json_openai(messages, schema))
-            else:
-                content = _with_backoff(lambda: _chat_json_ollama(messages, schema))
-            return schema.model_validate_json(content)
-        except ValidationError as e:
-            last_err = e
-            messages.append({"role": "user", "content": f"Your JSON was invalid: {e.errors()[:3]}. Return valid JSON."})
+    with trace_span("chat_json", as_type="generation", model=active_model,
+                    input={"schema": schema.__name__, "user": user[:1200]}) as gen:
+        for _ in range(retries + 1):
+            try:
+                if settings.llm_provider == "openai_compatible":
+                    content = _with_backoff(lambda: _chat_json_openai(messages, schema))
+                else:
+                    content = _with_backoff(lambda: _chat_json_ollama(messages, schema))
+                parsed = schema.model_validate_json(content)
+                safe_update(gen, output=parsed.model_dump())
+                return parsed
+            except ValidationError as e:
+                last_err = e
+                err_msg = f"Your JSON was invalid: {e.errors()[:3]}. Return valid JSON."
+                messages.append({"role": "user", "content": err_msg})
+        safe_update(gen, level="ERROR", status_message=str(last_err))
     raise LLMUnavailable(f"invalid JSON after retries: {last_err}")
 
 
 def chat_text(system: str, user: str) -> str:
     if settings.offline_mode:
         raise LLMUnavailable("offline mode")
+    active_model = _active_model()
     msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
     def _call() -> str:
@@ -107,7 +122,10 @@ def chat_text(system: str, user: str) -> str:
         resp = _ollama_client().chat(model=settings.llm_model, options=_options(), messages=msgs)
         return resp.message.content.strip()
 
-    return _with_backoff(_call)
+    with trace_span("chat_text", as_type="generation", model=active_model, input={"user": user[:1200]}) as gen:
+        out = _with_backoff(_call)
+        safe_update(gen, output=out[:1200])
+        return out
 
 
 def get_agent_llm():

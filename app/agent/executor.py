@@ -11,6 +11,7 @@ from app.agent.steps import complete_missing_steps
 from app.agent.tools import TOOLS
 from app.core.config import settings
 from app.core.models import MatchResult, RequirementOut
+from app.core.telemetry import flush_langfuse, langfuse_callbacks
 from app.llm.prompts import REACT_PROMPT
 
 log = logging.getLogger(__name__)
@@ -27,31 +28,6 @@ def get_executor():
     agent = create_react_agent(get_agent_llm(), TOOLS, PromptTemplate.from_template(REACT_PROMPT))
     return AgentExecutor(agent=agent, tools=TOOLS, max_iterations=8, early_stopping_method="force",
                          handle_parsing_errors=True, return_intermediate_steps=True, verbose=True)
-
-
-@lru_cache
-def _langfuse_client():
-    """Registers the Langfuse client once with our own settings. langfuse.langchain.CallbackHandler
-    itself takes no credentials — it looks up an already-registered client via get_client(), which
-    falls back to reading LANGFUSE_* from os.environ if none was registered. Our .env is loaded by
-    pydantic-settings into this Settings object, not into os.environ, so without this explicit,
-    cached instantiation the handler would silently trace nothing."""
-    from langfuse import Langfuse
-    return Langfuse(public_key=settings.langfuse_public_key or None,
-                    secret_key=settings.langfuse_secret_key or None,
-                    host=settings.langfuse_host)
-
-
-def _callbacks() -> list:
-    if not settings.langfuse_enabled:
-        return []
-    try:
-        from langfuse.langchain import CallbackHandler
-        _langfuse_client()
-        return [CallbackHandler(public_key=settings.langfuse_public_key or None)]
-    except Exception as e:
-        log.warning("langfuse disabled: %s", e)
-        return []
 
 
 def _insufficient(match_id: str, reason: str, t0: float, steps: list) -> MatchResult:
@@ -86,8 +62,9 @@ def run_match(resume_text: str, jd_text: str, use_agent: bool | None = None,
         if use_agent:
             try:
                 out = get_executor().invoke({"input": "Match the resume to the job description."},
-                                            config={"callbacks": _callbacks()})
+                                            config={"callbacks": langfuse_callbacks()})
                 st.steps.append({"agent_intermediate_steps": len(out.get("intermediate_steps", []))})
+                flush_langfuse()
             except Exception as e:
                 log.warning("agent failed, falling back: %s", e)
                 mode = "fallback_orchestrator"

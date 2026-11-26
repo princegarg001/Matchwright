@@ -17,6 +17,7 @@ from app.agent.steps import step_explain, step_extract, step_normalize, step_sco
 from app.core import store
 from app.core.config import settings
 from app.core.models import KGEdge, KGEvent, KGNode, MatchResult, RequirementOut
+from app.core.telemetry import safe_update, trace_span
 
 MIN_WORDS = 40
 MIN_SKILLS = 2
@@ -59,80 +60,102 @@ def stream_match(resume_text: str, jd_text: str) -> Iterator[KGEvent]:
     st = MatchState(resume_text=resume_text, jd_text=jd_text)
     yield _event(seq, "start", "Reading both documents…", [], [], by="system")
 
-    try:
-        # 1. extract_skills(resume)
-        tstep = time.time()
-        step_extract(st, "resume", "agent")
-        nodes, edges = kg_delta(st)
-        seq += 1
-        msg = f"Resume: found {len(st.resume.skills)} skills"
-        if st.resume.years_experience:
-            msg += f", {st.resume.years_experience:g} yrs experience"
-        yield _event(seq, "extract_skills", msg, nodes, edges, ms=int((time.time() - tstep) * 1000), by="agent")
-        if len(st.resume.skills) < MIN_SKILLS:
-            res = _guard_result(match_id, f"the resume contains fewer than {MIN_SKILLS} identifiable skills", t0)
+    with trace_span(
+        "matchwright_stream",
+        as_type="agent",
+        flush=True,
+        input={"match_id": match_id, "resume_chars": len(resume_text), "jd_chars": len(jd_text)},
+        metadata={"mode": "live_graph", "provider": settings.llm_provider},
+    ) as root_span:
+        try:
+            # 1. extract_skills(resume)
+            tstep = time.time()
+            with trace_span("extract_skills(resume)", as_type="tool", input={"target": "resume"}) as s1:
+                out1 = step_extract(st, "resume", "agent")
+                safe_update(s1, output=out1)
+            nodes, edges = kg_delta(st)
             seq += 1
-            yield _event(seq, "guard", res.message, [], [], by="system", done=True, result=res)
-            return
+            msg = f"Resume: found {len(st.resume.skills)} skills"
+            if st.resume.years_experience:
+                msg += f", {st.resume.years_experience:g} yrs experience"
+            yield _event(seq, "extract_skills", msg, nodes, edges, ms=int((time.time() - tstep) * 1000), by="agent")
+            if len(st.resume.skills) < MIN_SKILLS:
+                res = _guard_result(match_id, f"the resume contains fewer than {MIN_SKILLS} identifiable skills", t0)
+                safe_update(root_span, output={"status": res.status, "message": res.message})
+                seq += 1
+                yield _event(seq, "guard", res.message, [], [], by="system", done=True, result=res)
+                return
 
-        # 2. extract_skills(jd)
-        tstep = time.time()
-        step_extract(st, "jd", "agent")
-        nodes, edges = kg_delta(st)
-        seq += 1
-        req = sum(1 for s in st.jd.skills.values() if s.required)
-        yield _event(seq, "extract_skills", f"Job description: found {len(st.jd.skills)} skills ({req} required)",
-                     nodes, edges, ms=int((time.time() - tstep) * 1000), by="agent")
-        if len(st.jd.skills) < MIN_SKILLS:
-            res = _guard_result(match_id, f"the job description lists fewer than {MIN_SKILLS} identifiable skills", t0)
+            # 2. extract_skills(jd)
+            tstep = time.time()
+            with trace_span("extract_skills(jd)", as_type="tool", input={"target": "jd"}) as s2:
+                out2 = step_extract(st, "jd", "agent")
+                safe_update(s2, output=out2)
+            nodes, edges = kg_delta(st)
             seq += 1
-            yield _event(seq, "guard", res.message, [], [], by="system", done=True, result=res)
-            return
+            req = sum(1 for s in st.jd.skills.values() if s.required)
+            yield _event(seq, "extract_skills", f"Job description: found {len(st.jd.skills)} skills ({req} required)",
+                         nodes, edges, ms=int((time.time() - tstep) * 1000), by="agent")
+            if len(st.jd.skills) < MIN_SKILLS:
+                msg = f"the job description lists fewer than {MIN_SKILLS} identifiable skills"
+                res = _guard_result(match_id, msg, t0)
+                safe_update(root_span, output={"status": res.status, "message": res.message})
+                seq += 1
+                yield _event(seq, "guard", res.message, [], [], by="system", done=True, result=res)
+                return
 
-        # 3. normalize_skills(both)
-        tstep = time.time()
-        step_normalize(st, "agent")
-        nodes, edges = kg_delta(st)
-        seq += 1
-        msg = f"Matched skill names across both documents: resume {len(st.resume.skills)}, jd {len(st.jd.skills)}"
-        yield _event(seq, "normalize_skills", msg, nodes, edges, ms=int((time.time() - tstep) * 1000), by="agent")
+            # 3. normalize_skills(both)
+            tstep = time.time()
+            with trace_span("normalize_skills", as_type="tool", input={"target": "both"}) as s3:
+                out3 = step_normalize(st, "agent")
+                safe_update(s3, output=out3)
+            nodes, edges = kg_delta(st)
+            seq += 1
+            msg = f"Matched skill names across both documents: resume {len(st.resume.skills)}, jd {len(st.jd.skills)}"
+            yield _event(seq, "normalize_skills", msg, nodes, edges, ms=int((time.time() - tstep) * 1000), by="agent")
 
-        # 4. score_match(run)
-        tstep = time.time()
-        step_score(st, "agent")
-        nodes, edges = kg_delta(st)
-        seq += 1
-        b = st.breakdown
-        msg = f"Score {b.score}/100 ({b.band} fit), required {b.required_matched}/{b.required_total}"
-        yield _event(seq, "score_match", msg, nodes, edges, ms=int((time.time() - tstep) * 1000), by="agent")
+            # 4. score_match(run)
+            tstep = time.time()
+            with trace_span("score_match", as_type="tool", input={"target": "run"}) as s4:
+                out4 = step_score(st, "agent")
+                safe_update(s4, output=out4)
+            nodes, edges = kg_delta(st)
+            seq += 1
+            b = st.breakdown
+            msg = f"Score {b.score}/100 ({b.band} fit), required {b.required_matched}/{b.required_total}"
+            yield _event(seq, "score_match", msg, nodes, edges, ms=int((time.time() - tstep) * 1000), by="agent")
 
-        # 5. explain_match(run)
-        tstep = time.time()
-        step_explain(st, "agent")
-        nodes, edges = kg_delta(st)
-        seq += 1
-        yield _event(seq, "explain_match", f"Wrote {len(st.bullets)} grounded justifications",
-                     nodes, edges, ms=int((time.time() - tstep) * 1000), by="agent")
+            # 5. explain_match(run)
+            tstep = time.time()
+            with trace_span("explain_match", as_type="tool", input={"target": "run"}) as s5:
+                out5 = step_explain(st, "agent")
+                safe_update(s5, output={"justifications": st.bullets, "summary": out5})
+            nodes, edges = kg_delta(st)
+            seq += 1
+            yield _event(seq, "explain_match", f"Wrote {len(st.bullets)} grounded justifications",
+                         nodes, edges, ms=int((time.time() - tstep) * 1000), by="agent")
 
-        evidence = {k: v.evidence[:160] for k, v in st.resume.skills.items()}
-        requirements = [RequirementOut(**m.model_dump(), evidence=evidence.get(m.matched_with or "", ""))
-                        for m in b.matches]
-        result = MatchResult(
-            match_id=match_id, score=b.score, band=b.band, confidence=b.confidence, sub_scores=b.sub_scores,
-            matched_skills=b.matched_skills, missing_skills=b.missing_skills,
-            transferable_skills=b.transferable_skills, requirements=requirements,
-            justifications=st.bullets, mode="live_graph", explain_mode=st.explain_mode,
-            model="offline" if settings.offline_mode else settings.llm_model,
-            latency_ms=int((time.time() - t0) * 1000), trace=st.steps,
-            knowledge_graph=build_full_graph(st),
-        )
-        store.save(match_id, resume_text, jd_text, result.model_dump())
-        seq += 1
-        yield _event(seq, "done", "Done", [], [], by="system", done=True, result=result)
-    except Exception as e:  # keep the stream well-formed even on an unexpected failure
-        res = MatchResult(match_id=match_id, status="insufficient_information",
-                          message=f"Something went wrong while scoring this match ({type(e).__name__}).",
-                          hint="Try again, or paste plain text instead of an upload.",
-                          mode="error", model=settings.llm_model, latency_ms=int((time.time() - t0) * 1000))
-        seq += 1
-        yield _event(seq, "error", res.message, [], [], by="system", done=True, result=res)
+            evidence = {k: v.evidence[:160] for k, v in st.resume.skills.items()}
+            requirements = [RequirementOut(**m.model_dump(), evidence=evidence.get(m.matched_with or "", ""))
+                            for m in b.matches]
+            result = MatchResult(
+                match_id=match_id, score=b.score, band=b.band, confidence=b.confidence, sub_scores=b.sub_scores,
+                matched_skills=b.matched_skills, missing_skills=b.missing_skills,
+                transferable_skills=b.transferable_skills, requirements=requirements,
+                justifications=st.bullets, mode="live_graph", explain_mode=st.explain_mode,
+                model="offline" if settings.offline_mode else settings.llm_model,
+                latency_ms=int((time.time() - t0) * 1000), trace=st.steps,
+                knowledge_graph=build_full_graph(st),
+            )
+            store.save(match_id, resume_text, jd_text, result.model_dump())
+            safe_update(root_span, output={"status": "ok", "score": b.score, "band": b.band, "match_id": match_id})
+            seq += 1
+            yield _event(seq, "done", "Done", [], [], by="system", done=True, result=result)
+        except Exception as e:  # keep the stream well-formed even on an unexpected failure
+            res = MatchResult(match_id=match_id, status="insufficient_information",
+                              message=f"Something went wrong while scoring this match ({type(e).__name__}).",
+                              hint="Try again, or paste plain text instead of an upload.",
+                              mode="error", model=settings.llm_model, latency_ms=int((time.time() - t0) * 1000))
+            safe_update(root_span, level="ERROR", status_message=str(e))
+            seq += 1
+            yield _event(seq, "error", res.message, [], [], by="system", done=True, result=res)
